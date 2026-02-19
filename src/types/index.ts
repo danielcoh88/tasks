@@ -27,7 +27,8 @@ export interface Task {
   tags: string[];
   attachments: Attachment[];
   checklist: ChecklistItem[];
-  dueDate?: string;
+  startDate?: string; // ISO string – start of date range
+  dueDate?: string;   // ISO string – end date / due date
   createdAt: string;
   updatedAt: string;
   assignee?: string;

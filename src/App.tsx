@@ -14,15 +14,16 @@ interface ModalState {
   isOpen: boolean;
   task?: Task | null;
   defaultStatus?: TaskStatus;
-  defaultDate?: Date;
+  defaultStartDate?: Date;
+  defaultDate?: Date; // end date
 }
 
 export default function App() {
   const { activeView } = useTaskStore();
   const [modal, setModal] = useState<ModalState>({ isOpen: false });
 
-  const openNewTask = (status?: TaskStatus, date?: Date) => {
-    setModal({ isOpen: true, task: null, defaultStatus: status, defaultDate: date });
+  const openNewTask = (status?: TaskStatus, startDate?: Date, endDate?: Date) => {
+    setModal({ isOpen: true, task: null, defaultStatus: status, defaultStartDate: startDate, defaultDate: endDate });
   };
 
   const openTask = (task: Task) => {
@@ -66,7 +67,7 @@ export default function App() {
             <ListView onTaskClick={openTask} onAddTask={openNewTask} />
           )}
           {activeView === 'calendar' && (
-            <CalendarView onTaskClick={openTask} onAddTask={(date) => openNewTask(undefined, date)} />
+            <CalendarView onTaskClick={openTask} onAddTask={(start, end) => openNewTask(undefined, start, end)} />
           )}
           {activeView === 'automations' && (
             <AutomationsView />
@@ -78,6 +79,7 @@ export default function App() {
         <TaskModal
           task={modal.task}
           defaultStatus={modal.defaultStatus}
+          defaultStartDate={modal.defaultStartDate}
           defaultDate={modal.defaultDate}
           onClose={closeModal}
         />

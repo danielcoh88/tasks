@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { format } from 'date-fns';
+import { format, differenceInCalendarDays, addDays, startOfDay } from 'date-fns';
 import {
-  X, Paperclip, CheckSquare, Plus, Trash2, Calendar,
+  X, Paperclip, CheckSquare, Plus, Trash2, Calendar, ArrowRight,
   FileText, Download, ChevronDown,
   CheckCircle2, Circle,
 } from 'lucide-react';
@@ -15,24 +15,39 @@ import { useTaskStore } from '../../store/taskStore';
 interface TaskModalProps {
   task?: Task | null;
   defaultStatus?: TaskStatus;
+  defaultStartDate?: Date;
   defaultDate?: Date;
   onClose: () => void;
 }
 
-export default function TaskModal({ task, defaultStatus, defaultDate, onClose }: TaskModalProps) {
-  const { addTask, updateTask, deleteTask, addAttachment, removeAttachment, addChecklistItem, toggleChecklistItem, deleteChecklistItem, lists } = useTaskStore();
+function countWorkDays(start: Date, end: Date, workDays: number[]): number {
+  let count = 0;
+  let d = startOfDay(start);
+  const e = startOfDay(end);
+  while (d <= e) {
+    if (workDays.includes(d.getDay())) count++;
+    d = addDays(d, 1);
+  }
+  return count;
+}
+
+export default function TaskModal({ task, defaultStatus, defaultStartDate, defaultDate, onClose }: TaskModalProps) {
+  const { addTask, updateTask, deleteTask, addAttachment, removeAttachment, addChecklistItem, toggleChecklistItem, deleteChecklistItem, lists, workDays } = useTaskStore();
   const isNew = !task;
 
   const [title, setTitle] = useState(task?.title || '');
   const [description, setDescription] = useState(task?.description || '');
   const [status, setStatus] = useState<TaskStatus>(task?.status || defaultStatus || 'todo');
   const [priority, setPriority] = useState<TaskPriority>(task?.priority || 'medium');
-  const [dueDate, setDueDate] = useState(
-    task?.dueDate
-      ? format(new Date(task.dueDate), "yyyy-MM-dd'T'HH:mm")
-      : defaultDate
-      ? format(defaultDate, "yyyy-MM-dd'T'12:00")
-      : ''
+  const [startDate, setStartDate] = useState(
+    task?.startDate ? format(new Date(task.startDate), 'yyyy-MM-dd')
+    : defaultStartDate ? format(defaultStartDate, 'yyyy-MM-dd')
+    : ''
+  );
+  const [endDate, setEndDate] = useState(
+    task?.dueDate ? format(new Date(task.dueDate), 'yyyy-MM-dd')
+    : defaultDate ? format(defaultDate, 'yyyy-MM-dd')
+    : ''
   );
   const [tags, setTags] = useState<string[]>(task?.tags || []);
   const [tagInput, setTagInput] = useState('');
@@ -40,6 +55,14 @@ export default function TaskModal({ task, defaultStatus, defaultDate, onClose }:
   const [newCheckItem, setNewCheckItem] = useState('');
   const [isDragOver, setIsDragOver] = useState(false);
   const [activeTab, setActiveTab] = useState<'details' | 'checklist' | 'attachments'>('details');
+
+  // Duration calculation
+  const durationDays = startDate && endDate
+    ? differenceInCalendarDays(new Date(endDate), new Date(startDate)) + 1
+    : null;
+  const durationWorkDays = startDate && endDate
+    ? countWorkDays(new Date(startDate), new Date(endDate), workDays)
+    : null;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
@@ -109,7 +132,8 @@ export default function TaskModal({ task, defaultStatus, defaultDate, onClose }:
       description,
       status,
       priority,
-      dueDate: dueDate ? new Date(dueDate).toISOString() : undefined,
+      startDate: startDate ? new Date(startDate + 'T00:00:00').toISOString() : undefined,
+      dueDate: endDate ? new Date(endDate + 'T23:59:59').toISOString() : undefined,
       tags,
       listId,
     };
@@ -203,20 +227,58 @@ export default function TaskModal({ task, defaultStatus, defaultDate, onClose }:
           {/* Priority */}
           <PriorityDropdown value={priority} onChange={setPriority} />
 
-          {/* Due date */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Calendar size={13} style={{ color: '#475569' }} />
-            <input
-              type="datetime-local"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              style={{
-                background: '#1a1a22', border: '1px solid #2d2d35',
-                borderRadius: 6, color: dueDate ? '#e2e8f0' : '#475569',
-                fontSize: 12, padding: '4px 8px', cursor: 'pointer',
-                outline: 'none',
-              }}
-            />
+          {/* Date range */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <Calendar size={13} style={{ color: '#475569', flexShrink: 0 }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 0, background: '#1a1a22', border: '1px solid #2d2d35', borderRadius: 6, overflow: 'hidden' }}>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => {
+                  setStartDate(e.target.value);
+                  // If end date is before new start, push it forward
+                  if (endDate && e.target.value && e.target.value > endDate) setEndDate(e.target.value);
+                }}
+                title="Start date"
+                style={{
+                  background: 'transparent', border: 'none',
+                  color: startDate ? '#e2e8f0' : '#475569',
+                  fontSize: 12, padding: '4px 8px', cursor: 'pointer', outline: 'none',
+                  width: 130,
+                }}
+              />
+              <ArrowRight size={12} style={{ color: '#475569', flexShrink: 0 }} />
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => {
+                  setEndDate(e.target.value);
+                  // If start date is after new end, pull it back
+                  if (startDate && e.target.value && e.target.value < startDate) setStartDate(e.target.value);
+                }}
+                title="End date"
+                style={{
+                  background: 'transparent', border: 'none',
+                  color: endDate ? '#e2e8f0' : '#475569',
+                  fontSize: 12, padding: '4px 8px', cursor: 'pointer', outline: 'none',
+                  width: 130,
+                }}
+              />
+            </div>
+            {durationDays !== null && durationDays > 0 && (
+              <span style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                background: 'rgba(79,70,229,0.12)', color: '#818cf8',
+                fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 6,
+                border: '1px solid rgba(79,70,229,0.25)', whiteSpace: 'nowrap',
+              }}>
+                {durationDays}d{durationWorkDays !== null && durationWorkDays !== durationDays && (
+                  <span style={{ color: '#64748b', fontWeight: 400 }}>
+                    ({durationWorkDays} work)
+                  </span>
+                )}
+              </span>
+            )}
           </div>
 
           {/* List */}

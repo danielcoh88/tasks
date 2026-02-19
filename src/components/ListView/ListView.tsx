@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { format, isPast, isToday } from 'date-fns';
 import {
   ChevronDown, ChevronRight, Plus, Paperclip,
-  AlertCircle, Trash2, Edit2,
+  AlertCircle, Trash2, Edit2, ArrowRight,
 } from 'lucide-react';
 import type { Task, TaskStatus } from '../../types';
 import { STATUS_CONFIG, PRIORITY_CONFIG } from '../../types';
@@ -84,7 +84,7 @@ export default function ListView({ onTaskClick, onAddTask }: ListViewProps) {
                 {/* Table header */}
                 <div style={{
                   display: 'grid',
-                  gridTemplateColumns: '1fr 100px 90px 100px 80px 60px',
+                  gridTemplateColumns: '1fr 100px 140px 100px 80px 60px',
                   padding: '8px 14px',
                   background: '#141418',
                   borderBottom: '1px solid #1e1e26',
@@ -93,7 +93,7 @@ export default function ListView({ onTaskClick, onAddTask }: ListViewProps) {
                 }}>
                   <span>Title</span>
                   <span>Priority</span>
-                  <span>Due Date</span>
+                  <span>Dates</span>
                   <span>Tags</span>
                   <span>Progress</span>
                   <span></span>
@@ -138,16 +138,18 @@ function TaskRow({ task, isLast, onClick, onDelete }: {
 }) {
   const [hovered, setHovered] = useState(false);
   const priorityCfg = PRIORITY_CONFIG[task.priority];
+  const startDateObj = task.startDate ? new Date(task.startDate) : null;
   const dueDateObj = task.dueDate ? new Date(task.dueDate) : null;
   const isOverdue = dueDateObj ? isPast(dueDateObj) && task.status !== 'done' : false;
   const isDueToday = dueDateObj ? isToday(dueDateObj) : false;
+  const isRange = startDateObj && dueDateObj && format(startDateObj, 'yyyy-MM-dd') !== format(dueDateObj, 'yyyy-MM-dd');
   const checkedItems = task.checklist.filter((c) => c.checked).length;
 
   return (
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: '1fr 100px 90px 100px 80px 60px',
+        gridTemplateColumns: '1fr 100px 140px 100px 80px 60px',
         padding: '10px 14px',
         background: hovered ? '#1a1a22' : '#0f0f10',
         borderBottom: isLast ? 'none' : '1px solid #1a1a22',
@@ -184,17 +186,26 @@ function TaskRow({ task, isLast, onClick, onDelete }: {
         {priorityCfg.icon} {priorityCfg.label}
       </span>
 
-      {/* Due date */}
+      {/* Dates */}
       <span style={{
-        display: 'flex', alignItems: 'center', gap: 4,
+        display: 'flex', alignItems: 'center', gap: 3,
         fontSize: 12,
         color: isOverdue ? '#f87171' : isDueToday ? '#f59e0b' : '#64748b',
       }}>
-        {dueDateObj ? (
+        {isRange ? (
+          <>
+            {isOverdue && <AlertCircle size={11} />}
+            {format(startDateObj!, 'MMM d')}
+            <ArrowRight size={10} />
+            {format(dueDateObj!, 'MMM d')}
+          </>
+        ) : dueDateObj ? (
           <>
             {isOverdue && <AlertCircle size={11} />}
             {format(dueDateObj, 'MMM d')}
           </>
+        ) : startDateObj ? (
+          format(startDateObj, 'MMM d')
         ) : (
           <span style={{ color: '#2d2d35' }}>—</span>
         )}

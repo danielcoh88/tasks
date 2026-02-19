@@ -1,6 +1,6 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Calendar, Paperclip, CheckSquare, AlertCircle, GripVertical } from 'lucide-react';
+import { Calendar, Paperclip, CheckSquare, AlertCircle, GripVertical, ArrowRight } from 'lucide-react';
 import { format, isPast, isToday } from 'date-fns';
 import type { Task } from '../../types';
 import { PRIORITY_CONFIG } from '../../types';
@@ -25,9 +25,11 @@ export default function TaskCard({ task, onClick }: TaskCardProps) {
 
   const priorityCfg = PRIORITY_CONFIG[task.priority];
   const checkedItems = task.checklist.filter((c) => c.checked).length;
+  const startDateObj = task.startDate ? new Date(task.startDate) : null;
   const dueDateObj = task.dueDate ? new Date(task.dueDate) : null;
   const isOverdue = dueDateObj ? isPast(dueDateObj) && task.status !== 'done' : false;
   const isDueToday = dueDateObj ? isToday(dueDateObj) : false;
+  const isRange = startDateObj && dueDateObj && format(startDateObj, 'yyyy-MM-dd') !== format(dueDateObj, 'yyyy-MM-dd');
 
   return (
     <div
@@ -119,19 +121,27 @@ export default function TaskCard({ task, onClick }: TaskCardProps) {
           {priorityCfg.icon} {priorityCfg.label}
         </span>
 
-        {/* Due date */}
-        {dueDateObj && (
+        {/* Date range / Due date */}
+        {(startDateObj || dueDateObj) && (
           <span style={{
             display: 'flex', alignItems: 'center', gap: 3,
             fontSize: 11, fontWeight: 500,
             color: isOverdue ? '#f87171' : isDueToday ? '#f59e0b' : '#64748b',
-            background: isOverdue ? 'rgba(248,113,113,0.1)' : isDueToday ? 'rgba(245,158,11,0.1)' : 'transparent',
-            padding: isOverdue || isDueToday ? '1px 5px' : undefined,
+            background: isOverdue ? 'rgba(248,113,113,0.1)' : isDueToday ? 'rgba(245,158,11,0.1)' : isRange ? 'rgba(79,70,229,0.08)' : 'transparent',
+            padding: '1px 5px',
             borderRadius: 4,
           }}>
             {isOverdue && <AlertCircle size={10} />}
             <Calendar size={10} />
-            {format(dueDateObj, 'MMM d')}
+            {isRange ? (
+              <>
+                {format(startDateObj!, 'MMM d')}
+                <ArrowRight size={9} />
+                {format(dueDateObj!, 'MMM d')}
+              </>
+            ) : (
+              format(dueDateObj || startDateObj!, 'MMM d')
+            )}
           </span>
         )}
 

@@ -14,12 +14,17 @@ interface TaskStore {
   activeView: ViewType;
   searchQuery: string;
   selectedTaskId: string | null;
+  // Calendar work-day settings
+  workDays: number[];    // 0=Sun … 6=Sat; which days count as work days
+  workDaysOnly: boolean; // when true, calendar only shows workDays columns
 
   // View
   setActiveView: (view: ViewType) => void;
   setActiveListId: (id: string | null) => void;
   setSearchQuery: (q: string) => void;
   setSelectedTaskId: (id: string | null) => void;
+  setWorkDays: (days: number[]) => void;
+  setWorkDaysOnly: (val: boolean) => void;
 
   // Tasks
   addTask: (task: Partial<Task> & { title: string }) => Task;
@@ -164,11 +169,15 @@ export const useTaskStore = create<TaskStore>()(
       activeView: 'board',
       searchQuery: '',
       selectedTaskId: null,
+      workDays: [1, 2, 3, 4, 5], // Mon–Fri default
+      workDaysOnly: false,
 
       setActiveView: (view) => set({ activeView: view }),
       setActiveListId: (id) => set({ activeListId: id }),
       setSearchQuery: (q) => set({ searchQuery: q }),
       setSelectedTaskId: (id) => set({ selectedTaskId: id }),
+      setWorkDays: (days) => set({ workDays: days }),
+      setWorkDaysOnly: (val) => set({ workDaysOnly: val }),
 
       addTask: (partial) => {
         const task: Task = {
@@ -181,6 +190,7 @@ export const useTaskStore = create<TaskStore>()(
           tags: partial.tags || [],
           attachments: partial.attachments || [],
           checklist: partial.checklist || [],
+          startDate: partial.startDate,
           dueDate: partial.dueDate,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -423,6 +433,8 @@ export const useTaskStore = create<TaskStore>()(
         tasks: s.tasks,
         lists: s.lists,
         automations: s.automations,
+        workDays: s.workDays,
+        workDaysOnly: s.workDaysOnly,
       }),
     }
   )
