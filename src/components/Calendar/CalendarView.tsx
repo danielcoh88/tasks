@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useLayoutEffect, useCallback, useRef } from 'react';
 import {
   format, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   addDays, isSameMonth, isToday, addMonths, subMonths,
@@ -104,24 +104,31 @@ export default function CalendarView({ onTaskClick, onAddTask }: CalendarViewPro
   const weeks = fullWeeks.map((w) => w.filter((day) => visibleDays.includes(day.getDay())));
 
   // ─── Mouse interaction for drag-select & resize ────────────────────
+  // Ref for weeks so the stable findDateFromPoint callback can access current weeks
+  const weeksRef = useRef(weeks);
+  weeksRef.current = weeks;
+
+  // Compute date from mouse coordinates by finding which week row and column
   const findDateFromPoint = useCallback((x: number, y: number): Date | null => {
-    // Use elementsFromPoint to see through overlay layers (bars, etc.)
-    const elements = document.elementsFromPoint(x, y);
-    for (const el of elements) {
-      const dateAttr = el.getAttribute?.('data-cal-date');
-      if (dateAttr) return parseISO(dateAttr);
-      const dateEl = el.closest?.('[data-cal-date]');
-      if (dateEl) {
-        const ds = dateEl.getAttribute('data-cal-date');
-        if (ds) return parseISO(ds);
+    if (!calRef.current) return null;
+    const rowEls = calRef.current.querySelectorAll<HTMLElement>('[data-week-idx]');
+    for (const rowEl of rowEls) {
+      const rect = rowEl.getBoundingClientRect();
+      if (y >= rect.top && y < rect.bottom) {
+        const wi = parseInt(rowEl.getAttribute('data-week-idx')!);
+        const week = weeksRef.current[wi];
+        if (!week || week.length === 0) return null;
+        const colWidth = rect.width / week.length;
+        const colIdx = Math.max(0, Math.min(Math.floor((x - rect.left) / colWidth), week.length - 1));
+        return startOfDay(week[colIdx]);
       }
     }
     return null;
   }, []);
 
-  // Register document listeners once when interaction starts, remove when it ends
+  // Register document listeners synchronously when interaction starts
   const isInteracting = interaction !== null;
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isInteracting) return;
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -371,155 +378,162 @@ export default function CalendarView({ onTaskClick, onAddTask }: CalendarViewPro
             const visibleLanes = Math.min(maxLane + 1, 4);
 
             return (
-              <div key={wi} style={{
-                flex: 1, position: 'relative',
+              <div key={wi} data-week-idx={wi} style={{
+                flex: 1, display: 'flex', flexDirection: 'column',
                 borderBottom: wi < weeks.length - 1 ? '1px solid #1e1e26' : 'none',
                 minHeight: 80,
               }}>
-                {/* Base layer: full-height day columns with data-cal-date for hit testing */}
+                {/* Day number row */}
                 <div style={{
-                  position: 'absolute', inset: 0,
                   display: 'grid', gridTemplateColumns: `repeat(${colCount}, 1fr)`,
                 }}>
                   {week.map((day, di) => {
                     const inSelection = interaction?.type === 'select'
                       && isDateInRange(day, interaction.startDate, interaction.endDate);
                     const today = isToday(day);
+                    const inMonth = isSameMonth(day, currentDate);
 
                     return (
                       <div
                         key={di}
                         data-cal-date={format(day, 'yyyy-MM-dd')}
                         style={{
+                          padding: '4px 8px',
                           borderRight: di < week.length - 1 ? '1px solid #1e1e26' : 'none',
                           background: inSelection ? 'rgba(79,70,229,0.15)' : today ? 'rgba(79,70,229,0.05)' : 'transparent',
                           cursor: 'crosshair',
                           transition: 'background 0.08s',
                         }}
                         onMouseDown={(e) => handleCellMouseDown(day, e)}
-                      />
+                      >
+                        <span style={{
+                          fontSize: 12, fontWeight: today ? 700 : 500,
+                          color: today ? 'white' : inMonth ? '#94a3b8' : '#2d2d35',
+                          background: today ? '#4f46e5' : 'transparent',
+                          width: 22, height: 22, borderRadius: '50%',
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                          {format(day, 'd')}
+                        </span>
+                      </div>
                     );
                   })}
                 </div>
 
-                {/* Content layer: day numbers + task bars */}
-                <div style={{ position: 'relative', pointerEvents: 'none', minHeight: 80, display: 'flex', flexDirection: 'column' }}>
-                  {/* Day number row */}
+                {/* Task bar lanes */}
+                {visibleLanes > 0 && (
                   <div style={{
-                    display: 'grid', gridTemplateColumns: `repeat(${colCount}, 1fr)`,
+                    display: 'flex', flexDirection: 'column', gap: 2,
+                    padding: '2px 0',
                   }}>
-                    {week.map((day, di) => {
-                      const today = isToday(day);
-                      const inMonth = isSameMonth(day, currentDate);
+                    {Array.from({ length: visibleLanes }, (_, laneIdx) => {
+                      const laneBars = bars
+                        .map((bar, bi) => ({ bar, lane: lanes[bi] }))
+                        .filter((b) => b.lane === laneIdx);
 
                       return (
-                        <div key={di} style={{ padding: '4px 8px' }}>
-                          <span style={{
-                            fontSize: 12, fontWeight: today ? 700 : 500,
-                            color: today ? 'white' : inMonth ? '#94a3b8' : '#2d2d35',
-                            background: today ? '#4f46e5' : 'transparent',
-                            width: 22, height: 22, borderRadius: '50%',
-                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                          }}>
-                            {format(day, 'd')}
-                          </span>
+                        <div key={laneIdx} style={{
+                          display: 'grid', gridTemplateColumns: `repeat(${colCount}, 1fr)`,
+                          height: 22,
+                        }}>
+                          {laneBars.map(({ bar }) => {
+                            const cfg = STATUS_CONFIG[bar.task.status];
+                            const priCfg = PRIORITY_CONFIG[bar.task.priority];
+                            const isResizing = interaction?.type === 'resize' && interaction.taskId === bar.task.id;
+
+                            return (
+                              <div
+                                key={bar.task.id}
+                                data-bar="true"
+                                style={{
+                                  gridColumn: `${bar.startCol + 1} / ${bar.endCol + 2}`,
+                                  padding: '0 1px',
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    height: '100%',
+                                    background: cfg.bg,
+                                    border: `1px solid ${cfg.color}40`,
+                                    borderLeft: bar.isBarStart ? `3px solid ${priCfg.color}` : `1px solid ${cfg.color}40`,
+                                    borderRadius: `${bar.isBarStart ? 4 : 0}px ${bar.isBarEnd ? 4 : 0}px ${bar.isBarEnd ? 4 : 0}px ${bar.isBarStart ? 4 : 0}px`,
+                                    display: 'flex', alignItems: 'center',
+                                    overflow: 'hidden',
+                                    position: 'relative',
+                                    cursor: 'pointer',
+                                    opacity: isResizing ? 0.7 : 1,
+                                    transition: isResizing ? 'none' : 'opacity 0.1s',
+                                  }}
+                                  onClick={(e) => { e.stopPropagation(); onTaskClick(bar.task); }}
+                                >
+                                  {/* Left resize handle */}
+                                  {bar.isBarStart && (
+                                    <div
+                                      style={{
+                                        position: 'absolute', left: 0, top: 0, bottom: 0, width: 10,
+                                        cursor: 'ew-resize', zIndex: 2,
+                                      }}
+                                      onMouseDown={(e) => handleResizeMouseDown(bar.task.id, 'start', e)}
+                                    />
+                                  )}
+
+                                  {/* Title */}
+                                  <span style={{
+                                    fontSize: 11, fontWeight: 500, color: cfg.color,
+                                    padding: '0 10px', overflow: 'hidden',
+                                    textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                    pointerEvents: 'none',
+                                  }}>
+                                    {bar.isBarStart ? bar.task.title : ''}
+                                  </span>
+
+                                  {/* Right resize handle */}
+                                  {bar.isBarEnd && (
+                                    <div
+                                      style={{
+                                        position: 'absolute', right: 0, top: 0, bottom: 0, width: 10,
+                                        cursor: 'ew-resize', zIndex: 2,
+                                      }}
+                                      onMouseDown={(e) => handleResizeMouseDown(bar.task.id, 'end', e)}
+                                    />
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       );
                     })}
+                    {maxLane >= 4 && (
+                      <div style={{ fontSize: 10, color: '#475569', padding: '0 8px' }}>
+                        +{bars.filter((_, i) => lanes[i] >= 4).length} more
+                      </div>
+                    )}
                   </div>
+                )}
 
-                  {/* Task bar lanes */}
-                  {visibleLanes > 0 && (
-                    <div style={{
-                      display: 'flex', flexDirection: 'column', gap: 2,
-                      padding: '2px 0',
-                      pointerEvents: interaction ? 'none' : 'auto',
-                    }}>
-                      {Array.from({ length: visibleLanes }, (_, laneIdx) => {
-                        const laneBars = bars
-                          .map((bar, bi) => ({ bar, lane: lanes[bi] }))
-                          .filter((b) => b.lane === laneIdx);
-
-                        return (
-                          <div key={laneIdx} style={{
-                            display: 'grid', gridTemplateColumns: `repeat(${colCount}, 1fr)`,
-                            height: 22,
-                          }}>
-                            {laneBars.map(({ bar }) => {
-                              const cfg = STATUS_CONFIG[bar.task.status];
-                              const priCfg = PRIORITY_CONFIG[bar.task.priority];
-                              const isResizing = interaction?.type === 'resize' && interaction.taskId === bar.task.id;
-
-                              return (
-                                <div
-                                  key={bar.task.id}
-                                  data-bar="true"
-                                  style={{
-                                    gridColumn: `${bar.startCol + 1} / ${bar.endCol + 2}`,
-                                    padding: '0 1px',
-                                  }}
-                                >
-                                  <div
-                                    style={{
-                                      height: '100%',
-                                      background: cfg.bg,
-                                      border: `1px solid ${cfg.color}40`,
-                                      borderLeft: bar.isBarStart ? `3px solid ${priCfg.color}` : `1px solid ${cfg.color}40`,
-                                      borderRadius: `${bar.isBarStart ? 4 : 0}px ${bar.isBarEnd ? 4 : 0}px ${bar.isBarEnd ? 4 : 0}px ${bar.isBarStart ? 4 : 0}px`,
-                                      display: 'flex', alignItems: 'center',
-                                      overflow: 'hidden',
-                                      position: 'relative',
-                                      cursor: 'pointer',
-                                      opacity: isResizing ? 0.7 : 1,
-                                      transition: isResizing ? 'none' : 'opacity 0.1s',
-                                    }}
-                                    onClick={(e) => { e.stopPropagation(); onTaskClick(bar.task); }}
-                                  >
-                                    {/* Left resize handle */}
-                                    {bar.isBarStart && (
-                                      <div
-                                        style={{
-                                          position: 'absolute', left: 0, top: 0, bottom: 0, width: 10,
-                                          cursor: 'ew-resize', zIndex: 2,
-                                        }}
-                                        onMouseDown={(e) => handleResizeMouseDown(bar.task.id, 'start', e)}
-                                      />
-                                    )}
-
-                                    {/* Title */}
-                                    <span style={{
-                                      fontSize: 11, fontWeight: 500, color: cfg.color,
-                                      padding: '0 10px', overflow: 'hidden',
-                                      textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                                      pointerEvents: 'none',
-                                    }}>
-                                      {bar.isBarStart ? bar.task.title : ''}
-                                    </span>
-
-                                    {/* Right resize handle */}
-                                    {bar.isBarEnd && (
-                                      <div
-                                        style={{
-                                          position: 'absolute', right: 0, top: 0, bottom: 0, width: 10,
-                                          cursor: 'ew-resize', zIndex: 2,
-                                        }}
-                                        onMouseDown={(e) => handleResizeMouseDown(bar.task.id, 'end', e)}
-                                      />
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        );
-                      })}
-                      {maxLane >= 4 && (
-                        <div style={{ fontSize: 10, color: '#475569', padding: '0 8px' }}>
-                          +{bars.filter((_, i) => lanes[i] >= 4).length} more
-                        </div>
-                      )}
-                    </div>
-                  )}
+                {/* Click target area for remaining space */}
+                <div style={{
+                  display: 'grid', gridTemplateColumns: `repeat(${colCount}, 1fr)`,
+                  flex: 1,
+                }}>
+                  {week.map((day, di) => {
+                    const inSelection = interaction?.type === 'select'
+                      && isDateInRange(day, interaction.startDate, interaction.endDate);
+                    return (
+                      <div
+                        key={di}
+                        data-cal-date={format(day, 'yyyy-MM-dd')}
+                        style={{
+                          borderRight: di < week.length - 1 ? '1px solid #1e1e26' : 'none',
+                          minHeight: 8, cursor: 'crosshair',
+                          background: inSelection ? 'rgba(79,70,229,0.15)' : 'transparent',
+                          transition: 'background 0.08s',
+                        }}
+                        onMouseDown={(e) => handleCellMouseDown(day, e)}
+                      />
+                    );
+                  })}
                 </div>
               </div>
             );
